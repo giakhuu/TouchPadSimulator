@@ -1,8 +1,18 @@
 package com.example.mobiletouchpad
 
 import android.annotation.SuppressLint
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.ActivityInfo
+import android.hardware.usb.UsbAccessory
+import android.hardware.usb.UsbManager
+import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
+import android.os.ParcelFileDescriptor
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -30,6 +40,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -39,25 +50,73 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mobiletouchpad.ui.theme.MobileTouchPadTheme
+import java.io.FileOutputStream
+import java.io.IOException
+import java.io.OutputStream
+import java.net.Socket
 
 class MainActivity : ComponentActivity() {
+    private var isBound = false
+    private var socketService: SocketService? = null
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+            // 4. Lấy instance Service từ binder
+            socketService = (binder as SocketService.LocalBinder).getService()
+            isBound = true
+        }
+        override fun onServiceDisconnected(name: ComponentName) {
+            socketService = null
+            isBound = false
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Khởi kết nối TCP trong background
+        val intent = Intent(this, SocketService::class.java)
+        bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        // (Nếu cần chạy foreground)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        }
 
         setContent {
             LockLandscape()
             MobileTouchPadTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Grid(innerPadding)
+                    Grid(innerPadding, ::onDragStart, ::onDragMove, ::onDragEnd, ::onClick)
                 }
             }
         }
     }
+
+
+
+    private fun onDragStart(offset: Offset) { /* nếu cần */ }
+
+    private fun onDragMove(position: Offset, delta: Offset) {
+        val dx = delta.x.toInt().toByte()
+        val dy = delta.y.toInt().toByte()
+
+        socketService?.sendPacket(byteArrayOf(0x00, dx, dy))
+    }
+    private fun onClick(type: String) {
+        val code = if (type=="LEFTCLICK") 0x01.toByte() else 0x02.toByte()
+        socketService?.sendPacket(byteArrayOf(code))
+    }
+
+    private fun onDragEnd() { /* nếu cần */ }
+
 }
 
+
 @Composable
-fun Grid(innerPadding: PaddingValues) {
+fun Grid(
+    innerPadding: PaddingValues,
+    onDragStart: (Offset)->Unit,
+    onDragMove:  (Offset,Offset)->Unit,
+    onDragEnd:   ()->Unit,
+    onClick:     (String)->Unit
+) {
     val shape = RoundedCornerShape(10.dp)
     val modifier = Modifier
         .fillMaxHeight()
@@ -78,16 +137,16 @@ fun Grid(innerPadding: PaddingValues) {
             ) {
                 Pad(
                     modifier = modifier.weight(3f),
-                    onDragStart = dragStart,
-                    onDragMove = dragMove,
-                    onDragEnd = dragEnd,
+                    onDragStart = onDragStart,
+                    onDragMove = onDragMove,
+                    onDragEnd = onDragEnd,
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Pad(
                     modifier = modifier.weight(1f),
-                    onDragStart = dragStart,
-                    onDragMove = dragMove,
-                    onDragEnd = dragEnd,
+                    onDragStart = onDragStart,
+                    onDragMove = onDragMove,
+                    onDragEnd = onDragEnd,
                 )
             }
             Row (
@@ -98,13 +157,13 @@ fun Grid(innerPadding: PaddingValues) {
                 ClickButton(
                     modifier.weight(1f),
                     "Left Click",
-                    onClick = {clickEvent("LEFTCLICK")}
+                    onClick = {onClick("LEFTCLICK")}
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 ClickButton(
                     modifier.weight(1f),
                     "Right Click",
-                    onClick = {clickEvent("LEFTCLICK")}
+                    onClick = {onClick("RIGHTCLICK")}
                 )
             }
         }
@@ -184,7 +243,13 @@ fun ClickButton(
 )
 @Composable
 fun GridPreview() {
-    Grid(PaddingValues())
+    Grid(
+        PaddingValues(),
+        onDragStart = TODO(),
+        onDragMove = TODO(),
+        onDragEnd = TODO(),
+        onClick = TODO()
+    )
 }
 
 
