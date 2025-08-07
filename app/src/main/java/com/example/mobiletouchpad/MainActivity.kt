@@ -96,7 +96,7 @@ class MainActivity : ComponentActivity() {
     private fun onDragMove(position: Offset, delta: Offset) {
         val dx = delta.x.toInt().toByte()
         val dy = delta.y.toInt().toByte()
-
+        println("$dx $dy")
         socketService?.sendPacket(byteArrayOf(0x00, dx, dy))
     }
     private fun onClick(type: String) {
@@ -105,7 +105,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onDragEnd() { /* nếu cần */ }
-
+    override fun onDestroy() {
+        super.onDestroy()
+        if (isBound) {
+            unbindService(connection)
+            isBound = false
+        }
+    }
 }
 
 
